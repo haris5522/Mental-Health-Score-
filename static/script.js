@@ -168,4 +168,147 @@ function updateGauge(score) {
     GAUGE_LENGTH * (1 - progress);
 }
 
-// Reset the result and
+// Reset the result and form
+function resetForm() {
+  form.reset();
+  clearAllErrors();
+
+  stressInput.value = "";
+
+  stressGroup.querySelectorAll(".seg-btn").forEach((button) => {
+    button.classList.remove("active", "selected");
+    button.setAttribute("aria-pressed", "false");
+  });
+
+  scoreElement.textContent = "0.0";
+  scoreBand.textContent = "—";
+  scoreContext.textContent = "";
+
+  updateGauge(0);
+  showState("idle");
+
+  submitButton.disabled = false;
+  btnLabel.textContent = "Read my signal";
+}
+
+// Submit the prediction request
+form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  if (!validateForm()) {
+    return;
+  }
+
+  const payload = {
+    age: Number(document.getElementById("age").value),
+    gender: document.getElementById("gender").value,
+    country: document.getElementById("country").value.trim(),
+    academic_level:
+      document.getElementById("academic_level").value,
+    most_used_platform:
+      document.getElementById("most_used_platform").value,
+    purpose_of_use:
+      document.getElementById("purpose_of_use").value,
+    avg_daily_usage_hours: Number(
+      document.getElementById("avg_daily_usage_hours").value
+    ),
+    daily_unlocks: Number(
+      document.getElementById("daily_unlocks").value
+    ),
+    study_hours: Number(
+      document.getElementById("study_hours").value
+    ),
+    physical_activity_hours: Number(
+      document.getElementById("physical_activity_hours").value
+    ),
+    sleep_hours_per_night: Number(
+      document.getElementById("sleep_hours_per_night").value
+    ),
+    stress_level: stressInput.value
+  };
+
+  submitButton.disabled = true;
+  btnLabel.textContent = "Reading your signal…";
+  showState("loading");
+
+  const controller = new AbortController();
+
+  // Allow up to 90 seconds for a sleeping server to respond
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, 90000);
+
+  try {
+    const response = await fetch(API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      const detail = Array.isArray(result.detail)
+        ? result.detail
+            .map((item) => {
+              const field = item.loc?.slice(1).join(".") || "Input";
+              return `${field}: ${item.msg}`;
+            })
+            .join("; ")
+        : result.detail || "The prediction request failed.";
+
+      throw new Error(detail);
+    }
+
+    const score = Number(
+      result.predicted_mental_health_score
+    );
+
+    if (!Number.isFinite(score) || score < 0 || score > 10) {
+      throw new Error(
+        "The server returned an invalid score. Please check the model output."
+      );
+    }
+
+    scoreElement.textContent = score.toFixed(2);
+    updateGauge(score);
+
+    // Neutral wording: the score alone does not establish a diagnosis.
+    scoreBand.textContent = "Predicted score";
+    scoreContext.textContent =
+      "This is a model-generated estimate, not a clinical assessment.";
+
+    showState("result");
+  } catch (error) {
+    if (error.name === "AbortError") {
+      errorCopy.textContent =
+        "The server took too long to respond. Please try again.";
+    } else if (error instanceof TypeError) {
+      errorCopy.textContent =
+        "Could not connect to the prediction server. Please check your connection and try again.";
+    } else {
+      errorCopy.textContent = error.message;
+    }
+
+    showState("error");
+  } finally {
+    clearTimeout(timeoutId);
+    submitButton.disabled = false;
+    btnLabel.textContent = "Read my signal";
+  }
+});
+
+// Reset and retry buttons
+resetButton.addEventListener("click", resetForm);
+
+retryButton.addEventListener("click", () => {
+  showState("idle");
+});
+
+// Initial page state
+showState("idle");
+updateGauge(0);
+```
