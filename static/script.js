@@ -1,96 +1,171 @@
-// API address:
-// - Opened with Live Server (port 5500) or as a local file -> uses your local FastAPI
-// - Served by FastAPI itself (local port 8000 or online on Render) -> uses the same site
+```javascript
+// API configuration
+// Live Server / local HTML -> local FastAPI
+// Deployed website -> same-domain FastAPI
 const isLocalDev =
-  window.location.protocol === "file:" || window.location.port === "5500";
+  window.location.protocol === "file:" ||
+  window.location.port === "5500";
 
-const API_URL = isLocalDev ? "http://127.0.0.1:8000/predict" : "/predict";
+const API_URL = isLocalDev
+  ? "http://127.0.0.1:8000/predict"
+  : "/predict";
 
-const form = document.getElementById("prediction-form");
+// Main form elements
+const form = document.getElementById("predict-form");
 const submitButton = document.getElementById("submit-btn");
-const scoreElement = document.getElementById("score");
-const statusElement = document.getElementById("status");
-const errorElement = document.getElementById("error-message");
+const btnLabel = submitButton.querySelector(".btn-label");
 
-function showError(message) {
-  errorElement.textContent = message;
-  errorElement.style.display = "block";
+// Result states
+const idleState = document.getElementById("state-idle");
+const loadingState = document.getElementById("state-loading");
+const resultState = document.getElementById("state-result");
+const errorState = document.getElementById("state-error");
+
+// Result elements
+const scoreElement = document.getElementById("score-number");
+const scoreBand = document.getElementById("score-band");
+const scoreContext = document.getElementById("score-context");
+const gaugeFill = document.getElementById("gauge-fill");
+const errorCopy = document.getElementById("error-copy");
+
+// Buttons
+const resetButton = document.getElementById("reset-btn");
+const retryButton = document.getElementById("error-retry-btn");
+
+// Stress selection
+const stressGroup = document.getElementById("stress_level_group");
+const stressInput = document.getElementById("stress_level");
+
+// SVG gauge configuration
+const GAUGE_LENGTH = 314.16;
+
+// Show one result state at a time
+function showState(state) {
+  idleState.hidden = state !== "idle";
+  loadingState.hidden = state !== "loading";
+  resultState.hidden = state !== "result";
+  errorState.hidden = state !== "error";
 }
 
-function hideError() {
-  errorElement.textContent = "";
-  errorElement.style.display = "none";
+// Display field-specific validation errors
+function showFieldError(name, message) {
+  const error = document.querySelector(
+    `.error-msg[data-for="${name}"]`
+  );
+
+  if (error) {
+    error.textContent = message;
+  }
 }
 
-form.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  hideError();
+function clearFieldError(name) {
+  showFieldError(name, "");
+}
 
-  const payload = {
-    age: Number(document.getElementById("age").value),
-    gender: document.getElementById("gender").value,
-    country: document.getElementById("country").value.trim(),
-    academic_level: document.getElementById("academic_level").value,
-    most_used_platform: document.getElementById("most_used_platform").value,
-    purpose_of_use: document.getElementById("purpose_of_use").value,
-    avg_daily_usage_hours: Number(document.getElementById("avg_daily_usage_hours").value),
-    daily_unlocks: Number(document.getElementById("daily_unlocks").value),
-    study_hours: Number(document.getElementById("study_hours").value),
-    physical_activity_hours: Number(document.getElementById("physical_activity_hours").value),
-    sleep_hours_per_night: Number(document.getElementById("sleep_hours_per_night").value),
-    stress_level: document.getElementById("stress_level").value
-  };
+function clearAllErrors() {
+  document.querySelectorAll(".error-msg").forEach((element) => {
+    element.textContent = "";
+  });
+}
 
-  submitButton.disabled = true;
-  submitButton.textContent = "Predicting…";
-  statusElement.textContent = "Sending your details to the prediction model…";
+// Validate the form before sending data
+function validateForm() {
+  clearAllErrors();
 
-  // Free hosting can take up to a minute to wake up, so wait up to 90 seconds
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 90000);
+  let valid = true;
 
-  try {
-    const response = await fetch(API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: controller.signal
+  const fields = form.querySelectorAll(
+    "input:not([type='hidden']), select"
+  );
+
+  fields.forEach((field) => {
+    if (field.type === "number") {
+      const value = field.value.trim();
+      const number = Number(value);
+
+      if (value === "" || !Number.isFinite(number)) {
+        showFieldError(field.name, "Please enter a valid number.");
+        valid = false;
+        return;
+      }
+
+      if (field.min !== "" && number < Number(field.min)) {
+        showFieldError(
+          field.name,
+          `Minimum value is ${field.min}.`
+        );
+        valid = false;
+        return;
+      }
+
+      if (field.max !== "" && number > Number(field.max)) {
+        showFieldError(
+          field.name,
+          `Maximum value is ${field.max}.`
+        );
+        valid = false;
+        return;
+      }
+
+      if (field.step === "1" && !Number.isInteger(number)) {
+        showFieldError(
+          field.name,
+          "Please enter a whole number."
+        );
+        valid = false;
+        return;
+      }
+    } else if (field.required && !field.value.trim()) {
+      showFieldError(field.name, "This field is required.");
+      valid = false;
+    }
+  });
+
+  if (!stressInput.value) {
+    showFieldError("stress_level", "Please select a stress level.");
+    valid = false;
+  }
+
+  return valid;
+}
+
+// Select a stress level
+stressGroup.querySelectorAll(".seg-btn").forEach((button) => {
+  button.addEventListener("click", () => {
+    stressGroup.querySelectorAll(".seg-btn").forEach((item) => {
+      item.classList.remove("active", "selected");
+      item.setAttribute("aria-pressed", "false");
     });
 
-    const result = await response.json();
+    button.classList.add("active");
+    button.setAttribute("aria-pressed", "true");
 
-    if (!response.ok) {
-      const detail = Array.isArray(result.detail)
-        ? result.detail
-            .map((item) => `${item.loc?.slice(1).join(".") || "Input"}: ${item.msg}`)
-            .join("; ")
-        : (result.detail || "The API rejected the submitted data.");
-      throw new Error(detail);
-    }
-
-    const score = Number(result.predicted_mental_health_score);
-    if (!Number.isFinite(score)) {
-      throw new Error("The API response did not contain a valid prediction.");
-    }
-
-    scoreElement.textContent = score.toFixed(2);
-    statusElement.textContent = "Prediction received successfully.";
-  } catch (error) {
-    statusElement.textContent = "Prediction could not be completed.";
-    if (error.name === "AbortError") {
-      showError("The server took too long to respond. Please try again in a minute.");
-    } else if (error instanceof TypeError) {
-      showError(
-        isLocalDev
-          ? "Could not connect to FastAPI. Make sure it is running (uvicorn main:app --reload) at " + API_URL
-          : "Could not reach the server. It may be waking up (free hosting sleeps when idle). Wait about a minute and try again."
-      );
-    } else {
-      showError(error.message);
-    }
-  } finally {
-    clearTimeout(timeoutId);
-    submitButton.disabled = false;
-    submitButton.textContent = "✧  Predict Mental Health Score";
-  }
+    stressInput.value = button.dataset.value;
+    clearFieldError("stress_level");
+  });
 });
+
+// Remove field errors as the user edits their answers
+form.querySelectorAll("input, select").forEach((field) => {
+  field.addEventListener("input", () => {
+    clearFieldError(field.name);
+  });
+
+  field.addEventListener("change", () => {
+    clearFieldError(field.name);
+  });
+});
+
+// Update the semicircular score gauge
+function updateGauge(score) {
+  const safeScore = Math.max(0, Math.min(10, score));
+  const progress = safeScore / 10;
+
+  gaugeFill.style.strokeDasharray =
+    `${GAUGE_LENGTH} ${GAUGE_LENGTH}`;
+
+  gaugeFill.style.strokeDashoffset =
+    GAUGE_LENGTH * (1 - progress);
+}
+
+// Reset the result and
