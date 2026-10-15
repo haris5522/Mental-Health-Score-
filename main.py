@@ -1,3 +1,6 @@
+from pathlib import Path
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 import joblib
 import pandas as pd
 from fastapi import FastAPI
@@ -44,9 +47,12 @@ class PredictionResponse(BaseModel):
 
 
 
-@app.get('/')
+BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "static"
+
+@app.get("/")
 def greet():
-    return {"message": "Mental Health Predictor API is running"}
+    return FileResponse(STATIC_DIR / "index.html")
 
 
 @app.post('/predict', response_model=PredictionResponse) #6.77777
@@ -72,3 +78,9 @@ def predict(data: StudentData):
 
    prediction = model.predict(input_row)[0] #6.77
    return PredictionResponse(predicted_mental_health_score=round(float(prediction),2))
+
+    app.mount(
+    "/",
+    StaticFiles(directory=STATIC_DIR, html=True),
+    name="static"
+)
