@@ -537,3 +537,6 @@ input:invalid:not(:placeholder-shown):not(:focus) {
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
 }
+   [hidden] {
+     display: none !important;
+   }
